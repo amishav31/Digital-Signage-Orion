@@ -186,6 +186,56 @@ export function PortalShell({ children, portal, navItems }: PortalShellProps) {
                     </nav>
 
                     <div style={{ marginTop: "auto", borderTop: "1px solid hsla(var(--border-subtle), 1)", paddingTop: 20 }}>
+                        {/* Portal Switch Button */}
+                        {(canSwitchToPlatform || canSwitchToClient) && !isDesktopSidebarCollapsed && (
+                            <Link
+                                href={canSwitchToPlatform ? "/platform" : "/app"}
+                                onClick={() => setSidebarOpen(false)}
+                                style={{ textDecoration: "none", display: "block", marginBottom: 10 }}
+                            >
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 10,
+                                        padding: "11px 14px",
+                                        borderRadius: 12,
+                                        border: "1px solid hsla(var(--accent-secondary), 0.35)",
+                                        background: "hsla(var(--accent-secondary), 0.08)",
+                                        color: "hsl(var(--accent-secondary))",
+                                        cursor: "pointer",
+                                        transition: "all 0.2s ease",
+                                    }}
+                                >
+                                    <ArrowRightLeft size={15} />
+                                    <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                                        {canSwitchToPlatform ? "Platform Portal" : "Client Portal"}
+                                    </span>
+                                </div>
+                            </Link>
+                        )}
+                        {(canSwitchToPlatform || canSwitchToClient) && isDesktopSidebarCollapsed && (
+                            <Link
+                                href={canSwitchToPlatform ? "/platform" : "/app"}
+                                onClick={() => setSidebarOpen(false)}
+                                title={canSwitchToPlatform ? "Switch to Platform Portal" : "Switch to Client Portal"}
+                                style={{ textDecoration: "none", display: "flex", justifyContent: "center", marginBottom: 10 }}
+                            >
+                                <div
+                                    style={{
+                                        width: 40, height: 40, borderRadius: 12,
+                                        display: "flex", alignItems: "center", justifyContent: "center",
+                                        border: "1px solid hsla(var(--accent-secondary), 0.35)",
+                                        background: "hsla(var(--accent-secondary), 0.08)",
+                                        color: "hsl(var(--accent-secondary))",
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    <ArrowRightLeft size={16} />
+                                </div>
+                            </Link>
+                        )}
+
                         <div className="glass-panel" style={{ padding: 14, background: "hsla(var(--bg-base), 0.4)" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                                 <div style={{
@@ -250,26 +300,6 @@ export function PortalShell({ children, portal, navItems }: PortalShellProps) {
                     </div>
 
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        {canSwitchToPlatform && (
-                            <Link
-                                href="/platform"
-                                className="btn-outline"
-                                style={{ display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none", whiteSpace: "nowrap", padding: "9px 14px" }}
-                            >
-                                <ArrowRightLeft size={15} />
-                                Platform Portal
-                            </Link>
-                        )}
-                        {canSwitchToClient && (
-                            <Link
-                                href="/app"
-                                className="btn-outline"
-                                style={{ display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none", whiteSpace: "nowrap", padding: "9px 14px" }}
-                            >
-                                <ArrowRightLeft size={15} />
-                                Client Portal
-                            </Link>
-                        )}
                         {portal === "client" && (memberships.length > 0 || (hasElevatedDashboardAccess && allOrganizations.length > 0)) && (
                             <select
                                 value={activeOrganizationId ?? ""}
