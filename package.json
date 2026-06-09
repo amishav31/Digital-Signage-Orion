@@ -15,6 +15,7 @@
     "build:worker": "npm run build --workspace @orion/worker",
     "lint:web": "npm run lint --workspace @orion/web",
     "prisma:generate": "npx prisma generate",
+    "db:deploy": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:seed": "npx prisma db seed",
     "db:migrate": "npx prisma migrate dev",
