@@ -3,25 +3,35 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🌱 Seeding Orion Platform...\n');
+const SUPER_ADMIN_EMAIL = 'admin@orion.dev';
 
-  // ─── 1. Super Admin ───────────────────────────────────────────
-  const superAdminPassword = await bcrypt.hash('admin123', 10);
-  const superAdmin = await prisma.user.upsert({
-    where: { email: 'admin@orion.dev' },
-    update: {},
-    create: {
-      email: 'admin@orion.dev',
+async function ensureSuperAdmin() {
+  const existing = await prisma.user.findUnique({
+    where: { email: SUPER_ADMIN_EMAIL },
+  });
+
+  if (existing) {
+    console.log(`⏭️  Super Admin already exists: ${existing.email}`);
+    return existing;
+  }
+
+  const password = process.env.ORION_SEED_PASSWORD ?? 'admin123';
+  const passwordHash = await bcrypt.hash(password, 10);
+  const superAdmin = await prisma.user.create({
+    data: {
+      email: SUPER_ADMIN_EMAIL,
       fullName: 'Orion Super Admin',
-      passwordHash: superAdminPassword,
+      passwordHash,
       platformRole: PlatformRole.SUPER_ADMIN,
       status: UserStatus.ACTIVE,
     },
   });
-  console.log(`✅ Super Admin: ${superAdmin.email} (password: admin123)`);
 
-  // ─── 2. Sample Organization ───────────────────────────────────
+  console.log(`✅ Super Admin created: ${superAdmin.email}`);
+  return superAdmin;
+}
+
+async function seedDemoData() {
   const organization = await prisma.organization.upsert({
     where: { slug: 'acme-digital' },
     update: {},
@@ -36,7 +46,6 @@ async function main() {
   });
   console.log(`✅ Organization: ${organization.name} (slug: ${organization.slug})`);
 
-  // ─── 3. Org Admin — full access to everything ─────────────────
   const orgAdminPassword = await bcrypt.hash('orgadmin123', 10);
   const orgAdmin = await prisma.user.upsert({
     where: { email: 'orgadmin@acme.com' },
@@ -60,7 +69,6 @@ async function main() {
     },
   });
 
-  // Org Admin gets full permissions
   await seedPermissions(orgAdminMembership.id, {
     DASHBOARD: 'VIEW',
     ASSETS: 'EDIT',
@@ -75,7 +83,6 @@ async function main() {
   });
   console.log(`✅ Org Admin: ${orgAdmin.email} (password: orgadmin123) — full access`);
 
-  // ─── 4. Content Editor — can edit content, no device/team/settings access ──
   const editorPassword = await bcrypt.hash('editor123', 10);
   const editor = await prisma.user.upsert({
     where: { email: 'editor@acme.com' },
@@ -113,7 +120,6 @@ async function main() {
   });
   console.log(`✅ Content Editor: ${editor.email} (password: editor123) — edit content, no devices/team/settings`);
 
-  // ─── 5. Analyst Viewer — read-only access, no team/settings ───
   const viewerPassword = await bcrypt.hash('viewer123', 10);
   const viewer = await prisma.user.upsert({
     where: { email: 'viewer@acme.com' },
@@ -150,25 +156,39 @@ async function main() {
     SETTINGS: 'NONE',
   });
   console.log(`✅ Analyst Viewer: ${viewer.email} (password: viewer123) — view-only, no team/settings`);
+}
 
-  console.log('\n🎉 Seed complete! All test accounts ready.\n');
-  console.log('┌──────────────────────────────────────────────────────────────┐');
-  console.log('│  Login Credentials                                         │');
-  console.log('├──────────────────────┬─────────────┬────────────────────────┤');
-  console.log('│  Email               │  Password   │  Role                  │');
-  console.log('├──────────────────────┼─────────────┼────────────────────────┤');
-  console.log('│  admin@orion.dev     │  admin123   │  SUPER_ADMIN (platform)│');
-  console.log('│  orgadmin@acme.com   │  orgadmin123│  ORG_ADMIN             │');
-  console.log('│  editor@acme.com     │  editor123  │  CONTENT_EDITOR        │');
-  console.log('│  viewer@acme.com     │  viewer123  │  ANALYST_VIEWER        │');
-  console.log('└──────────────────────┴─────────────┴────────────────────────┘');
+async function main() {
+  console.log('🌱 Seeding Orion Platform...\n');
+
+  await ensureSuperAdmin();
+
+  if (process.env.ORION_SEED_DEMO_DATA === 'true') {
+    console.log('\n📦 Seeding demo organization and users...\n');
+    await seedDemoData();
+
+    console.log('\n🎉 Seed complete! All test accounts ready.\n');
+    console.log('┌──────────────────────────────────────────────────────────────┐');
+    console.log('│  Login Credentials                                         │');
+    console.log('├──────────────────────┬─────────────┬────────────────────────┤');
+    console.log('│  Email               │  Password   │  Role                  │');
+    console.log('├──────────────────────┼─────────────┼────────────────────────┤');
+    console.log('│  admin@orion.dev     │  admin123   │  SUPER_ADMIN (platform)│');
+    console.log('│  orgadmin@acme.com   │  orgadmin123│  ORG_ADMIN             │');
+    console.log('│  editor@acme.com     │  editor123  │  CONTENT_EDITOR        │');
+    console.log('│  viewer@acme.com     │  viewer123  │  ANALYST_VIEWER        │');
+    console.log('└──────────────────────┴─────────────┴────────────────────────┘');
+    return;
+  }
+
+  console.log('\n✅ Production seed complete (super admin only).');
+  console.log('   Set ORION_SEED_DEMO_DATA=true to seed demo organization and users.');
 }
 
 async function seedPermissions(
   membershipId: string,
   permissions: Partial<Record<FeatureKey, FeatureAccessLevel | 'NONE' | 'VIEW' | 'EDIT' | 'MANAGE' | 'CONTROL'>>,
 ) {
-  // Delete existing permissions for idempotency
   await prisma.membershipFeaturePermission.deleteMany({ where: { membershipId } });
 
   const entries = Object.entries(permissions).filter(([, level]) => level !== 'NONE') as [FeatureKey, FeatureAccessLevel][];

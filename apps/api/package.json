@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "start": "prisma migrate deploy && node dist/main.js",
+    "start": "bash ../../scripts/start-api.sh",
     "start:dev": "nest start --watch",
-    "start:prod": "prisma migrate deploy && node dist/main.js"
+    "start:prod": "bash ../../scripts/start-api.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",

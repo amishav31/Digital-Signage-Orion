@@ -17,19 +17,22 @@
     "prisma:generate": "npx prisma generate",
     "db:deploy": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
-    "db:seed": "npx prisma db seed",
+    "db:seed": "ORION_SEED_DEMO_DATA=true npx prisma db seed",
+    "start:api": "bash scripts/start-api.sh",
     "db:migrate": "npx prisma migrate dev",
     "db:reset": "npx prisma migrate reset"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
   },
-  "devDependencies": {
+  "dependencies": {
     "@prisma/client": "^6.19.3",
-    "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",
-    "dotenv": "^16.4.7",
-    "prisma": "^6.19.3",
     "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "dotenv": "^16.4.7",
+    "prisma": "^6.19.3"
   }
 }

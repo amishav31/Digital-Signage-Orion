@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: orion-api
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run prisma:generate && npm run build:api
+    startCommand: npm run start:api
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
