@@ -35,6 +35,7 @@ export default function CampaignBuilderPage() {
     const [assets, setAssets] = useState<Asset[]>([]);
     const [campaignAssets, setCampaignAssets] = useState<CampaignAsset[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [savingDurationAssetId, setSavingDurationAssetId] = useState<string | null>(null);
 
     const loadData = useCallback(async () => {
         if (!activeOrganizationId || !campaignId) return;
@@ -72,13 +73,13 @@ export default function CampaignBuilderPage() {
             
             if (added.success) {
                 setCampaignAssets(prev => [
-                    ...prev, 
+                    ...prev,
                     {
                         ...asset,
                         campaignAssetId: added.campaignAssetId,
-                        durationSeconds: 10,
-                        position: prev.length
-                    }
+                        durationSeconds: added.durationSeconds ?? 10,
+                        position: prev.length,
+                    },
                 ]);
             }
         } catch (error) {
@@ -95,6 +96,45 @@ export default function CampaignBuilderPage() {
             setCampaignAssets(prev => prev.filter(a => a.id !== assetId));
         } catch (error) {
             toast.error("Failed to remove asset");
+        }
+    };
+
+    const handleDurationChange = (assetId: string, value: string) => {
+        const parsed = Math.floor(Number(value));
+        if (!Number.isFinite(parsed)) return;
+        setCampaignAssets((prev) =>
+            prev.map((asset) => (asset.id === assetId ? { ...asset, durationSeconds: parsed } : asset)),
+        );
+    };
+
+    const handleDurationSave = async (asset: CampaignAsset) => {
+        if (!canEdit || !activeOrganizationId) return;
+
+        const durationSeconds = Math.floor(asset.durationSeconds);
+        if (!Number.isFinite(durationSeconds) || durationSeconds < 1) {
+            toast.error("Duration must be at least 1 second");
+            void loadData();
+            return;
+        }
+
+        setSavingDurationAssetId(asset.id);
+        try {
+            const updated = await apiRequest<CampaignAsset>(
+                `/api/client-data/campaigns/${campaignId}/assets/${asset.id}`,
+                {
+                    method: "PATCH",
+                    headers: { "x-organization-id": activeOrganizationId },
+                    body: JSON.stringify({ durationSeconds }),
+                },
+            );
+            setCampaignAssets((prev) =>
+                prev.map((item) => (item.id === asset.id ? { ...item, ...updated } : item)),
+            );
+        } catch (error) {
+            toast.error("Failed to update duration");
+            void loadData();
+        } finally {
+            setSavingDurationAssetId(null);
         }
     };
 
@@ -214,6 +254,26 @@ export default function CampaignBuilderPage() {
                         </div>
                     ) : (
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                            <div
+                                style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "48px 28px 80px 1fr 120px 40px",
+                                    gap: 16,
+                                    padding: "0 12px 8px",
+                                    fontSize: "0.7rem",
+                                    fontWeight: 700,
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.06em",
+                                    color: "hsl(var(--text-muted))",
+                                }}
+                            >
+                                <span />
+                                <span>#</span>
+                                <span>Preview</span>
+                                <span>Asset Name</span>
+                                <span>Duration</span>
+                                <span />
+                            </div>
                             <AnimatePresence>
                                 {campaignAssets.map((ca, index) => (
                                     <motion.div key={ca.campaignAssetId} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
@@ -240,12 +300,38 @@ export default function CampaignBuilderPage() {
 
                                         <div style={{ flex: 1 }}>
                                             <h4 style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: 4 }}>{ca.name}</h4>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: "0.75rem", color: "hsl(var(--text-muted))" }}>
-                                                <span>Type: {ca.type}</span>
-                                                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "hsla(var(--bg-base), 0.8)", padding: "2px 8px", borderRadius: 12 }}>
-                                                    <Clock size={12} /> {ca.durationSeconds}s
-                                                </div>
-                                            </div>
+                                            <p style={{ fontSize: "0.75rem", color: "hsl(var(--text-muted))" }}>Type: {ca.type}</p>
+                                        </div>
+
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 120 }}>
+                                            <Clock size={14} style={{ color: "hsl(var(--accent-primary))", flexShrink: 0 }} />
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                step={1}
+                                                value={ca.durationSeconds}
+                                                disabled={!canEdit || savingDurationAssetId === ca.id}
+                                                onChange={(event) => handleDurationChange(ca.id, event.target.value)}
+                                                onBlur={() => void handleDurationSave(ca)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter") {
+                                                        event.currentTarget.blur();
+                                                    }
+                                                }}
+                                                aria-label={`Duration for ${ca.name}`}
+                                                style={{
+                                                    width: 72,
+                                                    padding: "8px 10px",
+                                                    borderRadius: 10,
+                                                    border: "1px solid hsla(var(--border-subtle), 0.8)",
+                                                    background: "hsla(var(--bg-base), 0.8)",
+                                                    color: "hsl(var(--text-primary))",
+                                                    fontSize: "0.85rem",
+                                                    fontWeight: 600,
+                                                    outline: "none",
+                                                }}
+                                            />
+                                            <span style={{ fontSize: "0.8rem", color: "hsl(var(--text-muted))" }}>sec</span>
                                         </div>
 
                                         <button className="btn-icon-soft" disabled={!canEdit} onClick={() => handleRemoveAsset(ca.id)}

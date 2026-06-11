@@ -16,7 +16,9 @@ import { CurrentActor } from '../common/decorators/current-actor.decorator';
 import type { RequestActor } from '../common/interfaces/request-with-actor.interface';
 import { ClientDataService } from './client-data.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
+import { AddCampaignAssetDto } from './dto/add-campaign-asset.dto';
 import { PairDeviceDto } from './dto/pair-device.dto';
+import { UpdateCampaignAssetDurationDto } from './dto/update-campaign-asset-duration.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { CreateScheduleEventDto } from './dto/create-schedule-event.dto';
 import { UpdateScheduleEventDto } from './dto/update-schedule-event.dto';
@@ -57,9 +59,24 @@ export class ClientDataController {
   addCampaignAsset(
     @CurrentActor() actor: RequestActor,
     @Param('campaignId') campaignId: string,
-    @Body() body: { assetId: string; durationSeconds: number },
+    @Body() body: AddCampaignAssetDto,
   ) {
     return this.clientDataService.addCampaignAsset(actor, campaignId, body.assetId, body.durationSeconds);
+  }
+
+  @Patch('campaigns/:campaignId/assets/:assetId')
+  updateCampaignAssetDuration(
+    @CurrentActor() actor: RequestActor,
+    @Param('campaignId') campaignId: string,
+    @Param('assetId') assetId: string,
+    @Body() body: UpdateCampaignAssetDurationDto,
+  ) {
+    return this.clientDataService.updateCampaignAssetDuration(
+      actor,
+      campaignId,
+      assetId,
+      body.durationSeconds,
+    );
   }
 
   @Delete('campaigns/:campaignId/assets/:assetId')

@@ -180,10 +180,11 @@ export class ClientDataService {
     return assetsWithUrls;
   }
 
-  async addCampaignAsset(actor: RequestActor, campaignId: string, assetId: string, durationSeconds: number) {
+  async addCampaignAsset(actor: RequestActor, campaignId: string, assetId: string, durationSeconds?: number) {
     this.assertCanEdit(actor);
     const organizationId = this.getOrgId(actor);
-    
+    const normalizedDuration = this.normalizeDurationSeconds(durationSeconds ?? 10);
+
     // Verify ownership
     const campaign = await this.prisma.campaign.findFirst({ where: { id: campaignId, organizationId } });
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, organizationId } });
@@ -199,7 +200,7 @@ export class ClientDataService {
       data: {
         campaignId,
         assetId,
-        durationSeconds: durationSeconds || 10,
+        durationSeconds: normalizedDuration,
         position,
       },
       include: { asset: true },
@@ -210,7 +211,50 @@ export class ClientDataService {
       data: { assetCount: { increment: 1 } },
     });
 
-    return { success: true, campaignAssetId: ca.id };
+    return { success: true, campaignAssetId: ca.id, durationSeconds: ca.durationSeconds };
+  }
+
+  async updateCampaignAssetDuration(
+    actor: RequestActor,
+    campaignId: string,
+    assetId: string,
+    durationSeconds: number,
+  ) {
+    this.assertCanEdit(actor);
+    const organizationId = this.getOrgId(actor);
+    const normalizedDuration = this.normalizeDurationSeconds(durationSeconds);
+
+    const campaignAsset = await this.prisma.campaignAsset.findUnique({
+      where: { campaignId_assetId: { campaignId, assetId } },
+      include: { campaign: true, asset: true },
+    });
+
+    if (!campaignAsset || campaignAsset.campaign.organizationId !== organizationId) {
+      throw new NotFoundException('Campaign asset not found');
+    }
+
+    const updated = await this.prisma.campaignAsset.update({
+      where: { id: campaignAsset.id },
+      data: { durationSeconds: normalizedDuration },
+      include: { asset: true },
+    });
+
+    const downloadUrl =
+      updated.asset.status === 'READY'
+        ? await this.s3.generateDownloadUrl(updated.asset.s3Key)
+        : null;
+
+    return {
+      id: updated.asset.id,
+      campaignAssetId: updated.id,
+      name: updated.asset.name,
+      type: updated.asset.type,
+      durationSeconds: updated.durationSeconds,
+      position: updated.position,
+      downloadUrl,
+      fileSize: updated.asset.fileSize,
+      mimeType: updated.asset.mimeType,
+    };
   }
 
   async removeCampaignAsset(actor: RequestActor, campaignId: string, assetId: string) {
@@ -1230,6 +1274,14 @@ export class ClientDataService {
           ? date.toLocaleDateString('en-US', { weekday: 'short' })
           : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     };
+  }
+
+  private normalizeDurationSeconds(durationSeconds: number) {
+    const normalized = Math.floor(Number(durationSeconds));
+    if (!Number.isFinite(normalized) || normalized < 1) {
+      throw new BadRequestException('Duration must be at least 1 second');
+    }
+    return normalized;
   }
 
   private getOrgId(actor: RequestActor) {
