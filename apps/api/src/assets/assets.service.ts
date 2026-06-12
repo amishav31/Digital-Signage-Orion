@@ -9,6 +9,7 @@ import { AuditService } from '../audit/audit.service';
 import type { RequestActor } from '../common/interfaces/request-with-actor.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
+import { CreateUrlAssetDto } from './dto/create-url-asset.dto';
 import { RequestUploadDto } from './dto/request-upload.dto';
 import { UpdateAssetTagsDto } from './dto/update-asset-tags.dto';
 
@@ -32,6 +33,50 @@ export class AssetsService {
     private readonly s3: S3Service,
     private readonly auditService: AuditService,
   ) {}
+
+  async createUrlAsset(actor: RequestActor, organizationId: string, dto: CreateUrlAssetDto) {
+    this.ensureOrganizationAccess(actor, organizationId);
+
+    const name = dto.name.trim();
+    const url = dto.url.trim();
+    const defaultDurationSeconds = dto.durationSeconds ?? 15;
+
+    if (defaultDurationSeconds < 1) {
+      throw new BadRequestException('Duration must be at least 1 second');
+    }
+
+    const asset = await this.prisma.asset.create({
+      data: {
+        organizationId,
+        name,
+        type: AssetType.URL,
+        status: AssetStatus.READY,
+        mimeType: 'text/uri-list',
+        fileSize: 0,
+        s3Key: null,
+        url,
+        defaultDurationSeconds,
+        uploadedById: actor.userId,
+      },
+      include: {
+        uploadedBy: {
+          select: { id: true, fullName: true, email: true },
+        },
+      },
+    });
+
+    await this.auditService.log({
+      actorUserId: actor.userId,
+      organizationId,
+      action: 'asset.url.created',
+      targetType: 'asset',
+      targetId: asset.id,
+      summary: `${actor.email} created URL asset ${asset.name}`,
+      metadata: { url, defaultDurationSeconds },
+    });
+
+    return this.formatAsset(asset);
+  }
 
   async requestUpload(actor: RequestActor, organizationId: string, dto: RequestUploadDto) {
     this.ensureOrganizationAccess(actor, organizationId);
@@ -81,11 +126,18 @@ export class AssetsService {
       throw new NotFoundException('Asset not found');
     }
 
+    if (asset.type === AssetType.URL) {
+      throw new BadRequestException('URL assets do not require upload confirmation');
+    }
+
+    if (!asset.s3Key) {
+      throw new BadRequestException('Asset is missing storage key');
+    }
+
     if (asset.status === AssetStatus.READY) {
-      const downloadUrl = await this.s3.generateDownloadUrl(asset.s3Key);
       return {
         ...this.formatAsset(asset),
-        downloadUrl,
+        downloadUrl: await this.resolveAssetDownloadUrl(asset),
       };
     }
 
@@ -117,10 +169,9 @@ export class AssetsService {
       metadata: { filename: asset.name, type: asset.type, fileSize: updatedAsset.fileSize },
     });
 
-    const downloadUrl = await this.s3.generateDownloadUrl(updatedAsset.s3Key);
     return {
       ...this.formatAsset(updatedAsset),
-      downloadUrl,
+      downloadUrl: await this.resolveAssetDownloadUrl(updatedAsset),
     };
   }
 
@@ -164,15 +215,10 @@ export class AssetsService {
     ]);
 
     const assetsWithUrls = await Promise.all(
-      assets.map(async (asset) => {
-        const downloadUrl = asset.status === AssetStatus.READY
-          ? await this.s3.generateDownloadUrl(asset.s3Key)
-          : null;
-        return {
-          ...this.formatAsset(asset),
-          downloadUrl,
-        };
-      })
+      assets.map(async (asset) => ({
+        ...this.formatAsset(asset),
+        downloadUrl: await this.resolveAssetDownloadUrl(asset),
+      })),
     );
 
     return {
@@ -202,13 +248,9 @@ export class AssetsService {
       throw new NotFoundException('Asset not found');
     }
 
-    const downloadUrl = asset.status === AssetStatus.READY
-      ? await this.s3.generateDownloadUrl(asset.s3Key)
-      : null;
-
     return {
       ...this.formatAsset(asset),
-      downloadUrl,
+      downloadUrl: await this.resolveAssetDownloadUrl(asset),
     };
   }
 
@@ -263,14 +305,20 @@ export class AssetsService {
       data: { tags: dto.tags },
     });
 
-    const downloadUrl = updated.status === AssetStatus.READY
-      ? await this.s3.generateDownloadUrl(updated.s3Key)
-      : null;
-
     return {
       ...this.formatAsset(updated),
-      downloadUrl,
+      downloadUrl: await this.resolveAssetDownloadUrl(updated),
     };
+  }
+
+  private async resolveAssetDownloadUrl(asset: {
+    type: AssetType;
+    status: AssetStatus;
+    s3Key: string | null;
+  }) {
+    if (asset.type === AssetType.URL) return null;
+    if (asset.status !== AssetStatus.READY || !asset.s3Key) return null;
+    return this.s3.generateDownloadUrl(asset.s3Key);
   }
 
   private ensureOrganizationAccess(actor: RequestActor, organizationId: string) {
@@ -296,6 +344,8 @@ export class AssetsService {
       status: asset.status,
       mimeType: asset.mimeType,
       fileSize: asset.fileSize,
+      url: asset.url ?? null,
+      defaultDurationSeconds: asset.defaultDurationSeconds ?? null,
       width: asset.width ?? null,
       height: asset.height ?? null,
       durationMs: asset.durationMs ?? null,

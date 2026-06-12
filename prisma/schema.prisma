@@ -137,6 +137,7 @@ enum AssetType {
   VIDEO
   HTML
   DOCUMENT
+  URL
 }
 
 enum AssetStatus {
@@ -413,21 +414,23 @@ model AuditLog {
 }
 
 model Asset {
-  id               String        @id @default(cuid())
-  organizationId   String
-  name             String
-  type             AssetType
-  status           AssetStatus   @default(UPLOADING)
-  mimeType         String
-  fileSize         Int
-  s3Key            String        @unique
-  width            Int?
-  height           Int?
-  durationMs       Int?
-  uploadedById     String
-  tags             String[]      @default([])
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                     String        @id @default(cuid())
+  organizationId         String
+  name                   String
+  type                   AssetType
+  status                 AssetStatus   @default(UPLOADING)
+  mimeType               String
+  fileSize               Int           @default(0)
+  s3Key                  String?       @unique
+  url                    String?
+  defaultDurationSeconds Int?
+  width                  Int?
+  height                 Int?
+  durationMs             Int?
+  uploadedById           String
+  tags                   String[]      @default([])
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   uploadedBy       User          @relation("AssetUploader", fields: [uploadedById], references: [id], onDelete: SetNull)

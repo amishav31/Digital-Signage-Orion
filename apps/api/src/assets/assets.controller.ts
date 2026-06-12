@@ -3,6 +3,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentActor } from '../common/decorators/current-actor.decorator';
 import type { RequestActor } from '../common/interfaces/request-with-actor.interface';
 import { AssetsService } from './assets.service';
+import { CreateUrlAssetDto } from './dto/create-url-asset.dto';
 import { RequestUploadDto } from './dto/request-upload.dto';
 import { UpdateAssetTagsDto } from './dto/update-asset-tags.dto';
 
@@ -10,6 +11,15 @@ import { UpdateAssetTagsDto } from './dto/update-asset-tags.dto';
 @UseGuards(JwtAuthGuard)
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
+
+  @Post('url')
+  createUrlAsset(
+    @CurrentActor() actor: RequestActor,
+    @Param('organizationId') organizationId: string,
+    @Body() dto: CreateUrlAssetDto,
+  ) {
+    return this.assetsService.createUrlAsset(actor, organizationId, dto);
+  }
 
   @Post('upload-url')
   requestUpload(

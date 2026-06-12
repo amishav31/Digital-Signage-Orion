@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import {
+  AssetStatus,
+  AssetType,
   CampaignStatus,
   DeviceStatus,
   PlaylistStatus,
@@ -158,23 +160,18 @@ export class ClientDataService {
     });
 
     const assetsWithUrls = await Promise.all(
-      campaignAssets.map(async (ca) => {
-        const downloadUrl =
-          ca.asset.status === 'READY'
-            ? await this.s3.generateDownloadUrl(ca.asset.s3Key)
-            : null;
-        return {
-          id: ca.asset.id,
-          campaignAssetId: ca.id,
-          name: ca.asset.name,
-          type: ca.asset.type,
-          durationSeconds: ca.durationSeconds,
-          position: ca.position,
-          downloadUrl,
-          fileSize: ca.asset.fileSize,
-          mimeType: ca.asset.mimeType,
-        };
-      }),
+      campaignAssets.map(async (ca) => ({
+        id: ca.asset.id,
+        campaignAssetId: ca.id,
+        name: ca.asset.name,
+        type: ca.asset.type,
+        durationSeconds: ca.durationSeconds,
+        position: ca.position,
+        downloadUrl: await this.resolveAssetDownloadUrl(ca.asset),
+        url: ca.asset.url ?? null,
+        fileSize: ca.asset.fileSize,
+        mimeType: ca.asset.mimeType,
+      })),
     );
 
     return assetsWithUrls;
@@ -183,12 +180,13 @@ export class ClientDataService {
   async addCampaignAsset(actor: RequestActor, campaignId: string, assetId: string, durationSeconds?: number) {
     this.assertCanEdit(actor);
     const organizationId = this.getOrgId(actor);
-    const normalizedDuration = this.normalizeDurationSeconds(durationSeconds ?? 10);
-
     // Verify ownership
     const campaign = await this.prisma.campaign.findFirst({ where: { id: campaignId, organizationId } });
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, organizationId } });
     if (!campaign || !asset) throw new NotFoundException('Campaign or Asset not found');
+
+    const defaultDuration = asset.defaultDurationSeconds ?? 10;
+    const normalizedDuration = this.normalizeDurationSeconds(durationSeconds ?? defaultDuration);
 
     const lastAsset = await this.prisma.campaignAsset.findFirst({
       where: { campaignId },
@@ -239,11 +237,6 @@ export class ClientDataService {
       include: { asset: true },
     });
 
-    const downloadUrl =
-      updated.asset.status === 'READY'
-        ? await this.s3.generateDownloadUrl(updated.asset.s3Key)
-        : null;
-
     return {
       id: updated.asset.id,
       campaignAssetId: updated.id,
@@ -251,7 +244,8 @@ export class ClientDataService {
       type: updated.asset.type,
       durationSeconds: updated.durationSeconds,
       position: updated.position,
-      downloadUrl,
+      downloadUrl: await this.resolveAssetDownloadUrl(updated.asset),
+      url: updated.asset.url ?? null,
       fileSize: updated.asset.fileSize,
       mimeType: updated.asset.mimeType,
     };
@@ -1274,6 +1268,16 @@ export class ClientDataService {
           ? date.toLocaleDateString('en-US', { weekday: 'short' })
           : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     };
+  }
+
+  private async resolveAssetDownloadUrl(asset: {
+    type: AssetType;
+    status: AssetStatus;
+    s3Key: string | null;
+  }) {
+    if (asset.type === AssetType.URL) return null;
+    if (asset.status !== AssetStatus.READY || !asset.s3Key) return null;
+    return this.s3.generateDownloadUrl(asset.s3Key);
   }
 
   private normalizeDurationSeconds(durationSeconds: number) {

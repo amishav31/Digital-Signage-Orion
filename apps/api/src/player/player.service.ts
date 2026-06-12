@@ -238,14 +238,18 @@ export class PlayerService {
       durationSeconds: number;
       position: number;
       downloadUrl: string | null;
+      url: string | null;
       fileSize: number;
     }[] = [];
 
     let globalPosition = 0;
     for (const link of playlist.campaignLinks) {
       for (const campaignAsset of link.campaign.campaignAssets) {
+        const isUrlAsset = campaignAsset.asset.type === 'URL';
         const downloadUrl =
-          campaignAsset.asset.status === 'READY'
+          !isUrlAsset &&
+          campaignAsset.asset.status === 'READY' &&
+          campaignAsset.asset.s3Key
             ? await this.s3.generateDownloadUrl(campaignAsset.asset.s3Key, 86400) // 24h expiry for caching
             : null;
 
@@ -257,6 +261,7 @@ export class PlayerService {
           durationSeconds: campaignAsset.durationSeconds,
           position: globalPosition++,
           downloadUrl,
+          url: campaignAsset.asset.url ?? null,
           fileSize: campaignAsset.asset.fileSize,
         });
       }

@@ -65,7 +65,7 @@ export default function CampaignBuilderPage() {
     const handleAddAsset = async (asset: Asset) => {
         if (!canEdit) return toast.error("Read-only mode");
         try {
-            const added = await apiRequest<{ success: boolean; campaignAssetId: string }>(`/api/client-data/campaigns/${campaignId}/assets`, {
+            const added = await apiRequest<{ success: boolean; campaignAssetId: string; durationSeconds?: number }>(`/api/client-data/campaigns/${campaignId}/assets`, {
                 method: "POST",
                 headers: { "x-organization-id": activeOrganizationId! },
                 body: JSON.stringify({ assetId: asset.id, durationSeconds: 10 })
