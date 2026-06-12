@@ -276,9 +276,9 @@ model ScheduleEvent {
 }
 
 model Device {
-  id             String       @id @default(cuid())
-  organizationId String?
-  name           String
+  id              String           @id @default(cuid())
+  organizationId  String?
+  name            String
   status         DeviceStatus @default(OFFLINE)
   location       String       @default("Pending")
   ip             String       @default("Pending")
@@ -301,8 +301,9 @@ model Device {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  currentPlaylist Playlist?   @relation(fields: [currentPlaylistId], references: [id], onDelete: SetNull)
+  organization    Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  currentPlaylist Playlist?        @relation(fields: [currentPlaylistId], references: [id], onDelete: SetNull)
+  proofOfPlayLogs ProofOfPlayLog[]
 
   @@index([organizationId, createdAt])
   @@index([organizationId, currentPlaylistId])
@@ -327,17 +328,27 @@ model Ticker {
 }
 
 model ProofOfPlayLog {
-  id             String           @id @default(cuid())
-  organizationId String
-  device         String
-  content        String
-  status         ProofOfPlayStatus
-  timestamp      DateTime
-  createdAt      DateTime         @default(now())
+  id              String            @id @default(cuid())
+  organizationId  String
+  deviceId        String?
+  device          String
+  content         String
+  assetName       String            @default("")
+  playlistName    String?
+  campaignName    String?
+  status          ProofOfPlayStatus
+  timestamp       DateTime
+  startTime       DateTime
+  endTime         DateTime?
+  durationSeconds Int?
+  createdAt       DateTime          @default(now())
 
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deviceRef       Device?           @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, timestamp])
+  @@index([organizationId, startTime])
+  @@index([organizationId, deviceId, startTime])
 }
 
 model OrganizationMembership {

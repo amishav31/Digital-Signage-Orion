@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
+import * as ExcelJS from 'exceljs';
+import type { Prisma } from '@prisma/client';
 import {
   AssetStatus,
   AssetType,
@@ -69,8 +71,8 @@ export class ClientDataService {
       },
       recentActivityLog: logs.map((log) => ({
         id: log.id,
-        action: `${log.device} played ${log.content}`,
-        time: log.timestamp,
+        action: `${log.device} played ${log.assetName || log.content}`,
+        time: log.startTime ?? log.timestamp,
         type: log.status === ProofOfPlayStatus.VERIFIED ? 'success' : 'danger',
       })),
       topDevices: devices.slice(0, 4).map((device) => ({
@@ -1080,44 +1082,56 @@ export class ClientDataService {
     return { success: true };
   }
 
-  async reports(actor: RequestActor, range = '7d') {
+  async reports(
+    actor: RequestActor,
+    query: {
+      range?: string;
+      startDate?: string;
+      endDate?: string;
+      deviceId?: string;
+      search?: string;
+      status?: 'all' | 'verified' | 'failed';
+      page?: number;
+      limit?: number;
+    } = {},
+  ) {
     const organizationId = this.getOrgId(actor);
-    const { startDate, bucketCount, bucketMs, formatLabel } = this.resolveReportRange(range);
+    const range = query.range ?? '7d';
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(500, Math.max(1, query.limit ?? 100));
+    const { where, rangeStart, rangeEnd } = this.buildPopLogWhere(organizationId, query);
 
-    const [devices, logs] = await Promise.all([
-      this.prisma.device.findMany({ where: { organizationId }, orderBy: { createdAt: 'asc' } }),
+    const [devices, organization, totalLogs, logs, aggregateLogs] = await Promise.all([
+      this.prisma.device.findMany({ where: { organizationId }, orderBy: { name: 'asc' } }),
+      this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
+      this.prisma.proofOfPlayLog.count({ where }),
       this.prisma.proofOfPlayLog.findMany({
-        where: { organizationId, timestamp: { gte: startDate } },
-        orderBy: { timestamp: 'desc' },
+        where,
+        orderBy: { startTime: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.proofOfPlayLog.findMany({
+        where,
+        orderBy: { startTime: 'desc' },
+        select: {
+          id: true,
+          device: true,
+          deviceId: true,
+          assetName: true,
+          content: true,
+          playlistName: true,
+          campaignName: true,
+          status: true,
+          startTime: true,
+          endTime: true,
+          durationSeconds: true,
+        },
       }),
     ]);
 
-    const verifiedCount = logs.filter((log) => log.status === ProofOfPlayStatus.VERIFIED).length;
-
-    const buckets = Array.from({ length: bucketCount }, (_, index) => {
-      const bucketStart = new Date(startDate.getTime() + index * bucketMs);
-      return {
-        label: formatLabel(bucketStart),
-        impressions: 0,
-        verified: 0,
-      };
-    });
-    for (const log of logs) {
-      const offset = log.timestamp.getTime() - startDate.getTime();
-      const bucketIndex = Math.min(Math.max(Math.floor(offset / bucketMs), 0), bucketCount - 1);
-      buckets[bucketIndex].impressions += 1;
-      if (log.status === ProofOfPlayStatus.VERIFIED) {
-        buckets[bucketIndex].verified += 1;
-      }
-    }
-    const chartData = buckets.map((bucket) => ({
-      day: bucket.label,
-      impressions: bucket.impressions,
-      engagement: bucket.impressions > 0
-        ? Math.round((bucket.verified / bucket.impressions) * 100)
-        : 0,
-    }));
-
+    const verifiedCount = aggregateLogs.filter((log) => log.status === ProofOfPlayStatus.VERIFIED).length;
+    const chartData = this.buildReportChartData(aggregateLogs, range, rangeStart, rangeEnd);
     const deviceByName = new Map(devices.map((device) => [device.name, device]));
     const deviceAgg = new Map<string, {
       id: string | null;
@@ -1128,8 +1142,9 @@ export class ClientDataService {
       verified: number;
       lastPlay: Date | null;
     }>();
-    for (const log of logs) {
-      const matched = deviceByName.get(log.device);
+
+    for (const log of aggregateLogs) {
+      const matched = log.deviceId ? devices.find((device) => device.id === log.deviceId) : deviceByName.get(log.device);
       const key = matched?.id ?? log.device;
       const current = deviceAgg.get(key) ?? {
         id: matched?.id ?? null,
@@ -1142,9 +1157,10 @@ export class ClientDataService {
       };
       current.impressions += 1;
       if (log.status === ProofOfPlayStatus.VERIFIED) current.verified += 1;
-      if (!current.lastPlay || log.timestamp > current.lastPlay) current.lastPlay = log.timestamp;
+      if (!current.lastPlay || log.startTime > current.lastPlay) current.lastPlay = log.startTime;
       deviceAgg.set(key, current);
     }
+
     const deviceBreakdown = Array.from(deviceAgg.values())
       .sort((a, b) => b.impressions - a.impressions)
       .slice(0, 12)
@@ -1162,16 +1178,18 @@ export class ClientDataService {
       }));
 
     const contentAgg = new Map<string, { content: string; impressions: number; verified: number }>();
-    for (const log of logs) {
-      const current = contentAgg.get(log.content) ?? {
-        content: log.content,
+    for (const log of aggregateLogs) {
+      const label = log.assetName || log.content;
+      const current = contentAgg.get(label) ?? {
+        content: label,
         impressions: 0,
         verified: 0,
       };
       current.impressions += 1;
       if (log.status === ProofOfPlayStatus.VERIFIED) current.verified += 1;
-      contentAgg.set(log.content, current);
+      contentAgg.set(label, current);
     }
+
     const topContent = Array.from(contentAgg.values())
       .sort((a, b) => b.impressions - a.impressions)
       .slice(0, 10)
@@ -1184,89 +1202,288 @@ export class ClientDataService {
             : 0,
       }));
 
+    const durationSamples = aggregateLogs
+      .map((log) => log.durationSeconds)
+      .filter((value): value is number => typeof value === 'number' && value > 0);
+
     return {
       range,
-      rangeStart: startDate,
-      rangeEnd: new Date(),
+      rangeStart,
+      rangeEnd,
+      organizationName: organization?.name ?? 'Organization',
+      devices: devices.map((device) => ({ id: device.id, name: device.name })),
       kpis: {
-        billedImpressions: logs.length,
-        avgEngagement: Math.round(
-          logs.reduce((sum, log) => sum + (log.status === ProofOfPlayStatus.VERIFIED ? 34 : 9), 0) /
-            Math.max(logs.length, 1),
-        ),
+        billedImpressions: aggregateLogs.length,
+        avgEngagement:
+          durationSamples.length > 0
+            ? Math.round(durationSamples.reduce((sum, value) => sum + value, 0) / durationSamples.length)
+            : 0,
         playbackFidelity:
-          Math.round((verifiedCount / Math.max(logs.length, 1)) * 10000) / 100,
+          Math.round((verifiedCount / Math.max(aggregateLogs.length, 1)) * 10000) / 100,
         activeNodes: devices.filter((device) => device.status === DeviceStatus.ONLINE).length,
         totalNodes: devices.length,
         verifiedCount,
-        failedCount: logs.length - verifiedCount,
+        failedCount: aggregateLogs.length - verifiedCount,
       },
       chartData,
       deviceBreakdown,
       topContent,
-      proofOfPlay: logs.slice(0, 200).map((log) => ({
-        id: log.id,
-        device: log.device,
-        content: log.content,
-        timestamp: log.timestamp,
-        status: this.toTitleStatus(log.status),
-      })),
+      proofOfPlay: logs.map((log) => this.serializePopLog(log)),
+      proofOfPlayMeta: {
+        total: totalLogs,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(totalLogs / limit)),
+      },
     };
   }
 
-  async exportReportCsv(actor: RequestActor, range = '7d') {
+  async exportReportXlsx(
+    actor: RequestActor,
+    query: {
+      range?: string;
+      startDate?: string;
+      endDate?: string;
+      deviceId?: string;
+      search?: string;
+      status?: 'all' | 'verified' | 'failed';
+    } = {},
+  ) {
     const organizationId = this.getOrgId(actor);
-    const { startDate } = this.resolveReportRange(range);
-    const logs = await this.prisma.proofOfPlayLog.findMany({
-      where: { organizationId, timestamp: { gte: startDate } },
-      orderBy: { timestamp: 'desc' },
-      take: 5000,
-    });
+    const { where } = this.buildPopLogWhere(organizationId, query);
+    const [organization, logs] = await Promise.all([
+      this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
+      this.prisma.proofOfPlayLog.findMany({
+        where,
+        orderBy: { startTime: 'desc' },
+      }),
+    ]);
 
-    const header = 'Timestamp,Device,Content,Status\n';
-    const escape = (value: string) => {
-      if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-      return value;
-    };
-    const rows = logs
-      .map((log) =>
-        [
-          log.timestamp.toISOString(),
-          escape(log.device),
-          escape(log.content),
-          this.toTitleStatus(log.status),
-        ].join(','),
-      )
-      .join('\n');
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Proof of Play');
+    sheet.columns = [
+      { header: 'Organization', key: 'organization', width: 28 },
+      { header: 'Device Name', key: 'device', width: 24 },
+      { header: 'Playlist Name', key: 'playlistName', width: 24 },
+      { header: 'Campaign Name', key: 'campaignName', width: 24 },
+      { header: 'Asset Name', key: 'assetName', width: 28 },
+      { header: 'Start Time', key: 'startTime', width: 24 },
+      { header: 'End Time', key: 'endTime', width: 24 },
+      { header: 'Duration', key: 'duration', width: 14 },
+      { header: 'Status', key: 'status', width: 14 },
+    ];
+    sheet.getRow(1).font = { bold: true };
 
-    return header + rows + (rows.length > 0 ? '\n' : '');
+    for (const log of logs) {
+      sheet.addRow({
+        organization: organization?.name ?? 'Organization',
+        device: log.device,
+        playlistName: log.playlistName ?? '',
+        campaignName: log.campaignName ?? '',
+        assetName: log.assetName || log.content,
+        startTime: log.startTime.toISOString(),
+        endTime: log.endTime ? log.endTime.toISOString() : '',
+        duration: log.durationSeconds ?? '',
+        status: this.toTitleStatus(log.status),
+      });
+    }
+
+    return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 
-  private resolveReportRange(range: string) {
-    const now = new Date();
-    const normalized = (range ?? '').toLowerCase();
+  private buildPopLogWhere(
+    organizationId: string,
+    query: {
+      range?: string;
+      startDate?: string;
+      endDate?: string;
+      deviceId?: string;
+      search?: string;
+      status?: 'all' | 'verified' | 'failed';
+    },
+  ) {
+    const { rangeStart, rangeEnd } = this.resolveReportDateRange(
+      query.range ?? '7d',
+      query.startDate,
+      query.endDate,
+    );
+    const where: Prisma.ProofOfPlayLogWhereInput = { organizationId };
 
-    if (normalized === '24h') {
-      const startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    if (rangeStart || rangeEnd) {
+      where.startTime = {};
+      if (rangeStart) where.startTime.gte = rangeStart;
+      if (rangeEnd) where.startTime.lte = rangeEnd;
+    }
+
+    if (query.deviceId) {
+      where.deviceId = query.deviceId;
+    }
+
+    if (query.status === 'verified') {
+      where.status = ProofOfPlayStatus.VERIFIED;
+    } else if (query.status === 'failed') {
+      where.status = ProofOfPlayStatus.FAILED;
+    }
+
+    if (query.search?.trim()) {
+      const term = query.search.trim();
+      where.OR = [
+        { device: { contains: term, mode: 'insensitive' } },
+        { assetName: { contains: term, mode: 'insensitive' } },
+        { content: { contains: term, mode: 'insensitive' } },
+        { playlistName: { contains: term, mode: 'insensitive' } },
+        { campaignName: { contains: term, mode: 'insensitive' } },
+      ];
+    }
+
+    return { where, rangeStart, rangeEnd };
+  }
+
+  private resolveReportDateRange(range: string, startDate?: string, endDate?: string) {
+    const now = new Date();
+    const normalized = (range ?? '7d').toLowerCase();
+
+    if (normalized === 'custom') {
+      const customStart = startDate ? new Date(startDate) : null;
+      const customEnd = endDate ? new Date(endDate) : now;
+      if (customStart && Number.isNaN(customStart.getTime())) {
+        throw new BadRequestException('Invalid startDate');
+      }
+      if (Number.isNaN(customEnd.getTime())) {
+        throw new BadRequestException('Invalid endDate');
+      }
+      if (customStart && customEnd < customStart) {
+        throw new BadRequestException('endDate must be after startDate');
+      }
       return {
-        startDate,
-        bucketCount: 24,
-        bucketMs: 60 * 60 * 1000,
-        formatLabel: (date: Date) =>
-          date.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false }),
+        rangeStart: customStart,
+        rangeEnd: customEnd,
       };
     }
 
-    const days = normalized === '30d' ? 30 : normalized === '90d' ? 90 : 7;
-    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    if (normalized === 'all') {
+      return { rangeStart: null, rangeEnd: null };
+    }
+
+    if (normalized === 'today') {
+      const rangeStart = new Date(now);
+      rangeStart.setHours(0, 0, 0, 0);
+      return { rangeStart, rangeEnd: now };
+    }
+
+    const days = normalized === '30d' ? 30 : normalized === '24h' ? 1 : 7;
+    const rangeStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    return { rangeStart, rangeEnd: now };
+  }
+
+  private buildReportChartData(
+    logs: { status: ProofOfPlayStatus; startTime: Date }[],
+    range: string,
+    rangeStart: Date | null,
+    rangeEnd: Date | null,
+  ) {
+    const normalized = (range ?? '7d').toLowerCase();
+    const end = rangeEnd ?? new Date();
+    const start =
+      rangeStart ??
+      new Date(end.getTime() - (normalized === '30d' ? 30 : normalized === 'today' ? 1 : 7) * 24 * 60 * 60 * 1000);
+
+    if (normalized === 'all' && logs.length > 0) {
+      const monthAgg = new Map<string, { label: string; impressions: number; verified: number; sortKey: string }>();
+      for (const log of logs) {
+        const label = log.startTime.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        const sortKey = `${log.startTime.getFullYear()}-${String(log.startTime.getMonth() + 1).padStart(2, '0')}`;
+        const current = monthAgg.get(sortKey) ?? { label, impressions: 0, verified: 0, sortKey };
+        current.impressions += 1;
+        if (log.status === ProofOfPlayStatus.VERIFIED) current.verified += 1;
+        monthAgg.set(sortKey, current);
+      }
+      return Array.from(monthAgg.values())
+        .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+        .slice(-24)
+        .map((bucket) => ({
+          day: bucket.label,
+          impressions: bucket.impressions,
+          engagement:
+            bucket.impressions > 0
+              ? Math.round((bucket.verified / bucket.impressions) * 100)
+              : 0,
+        }));
+    }
+
+    const bucketMs =
+      normalized === 'today'
+        ? 60 * 60 * 1000
+        : 24 * 60 * 60 * 1000;
+    const bucketCount = Math.max(
+      1,
+      Math.min(
+        normalized === 'today' ? 24 : normalized === '30d' ? 30 : 7,
+        Math.ceil((end.getTime() - start.getTime()) / bucketMs),
+      ),
+    );
+
+    const buckets = Array.from({ length: bucketCount }, (_, index) => {
+      const bucketStart = new Date(start.getTime() + index * bucketMs);
+      return {
+        label:
+          normalized === 'today'
+            ? bucketStart.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false })
+            : bucketCount <= 7
+              ? bucketStart.toLocaleDateString('en-US', { weekday: 'short' })
+              : bucketStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        impressions: 0,
+        verified: 0,
+      };
+    });
+
+    for (const log of logs) {
+      const offset = log.startTime.getTime() - start.getTime();
+      const bucketIndex = Math.min(Math.max(Math.floor(offset / bucketMs), 0), bucketCount - 1);
+      buckets[bucketIndex].impressions += 1;
+      if (log.status === ProofOfPlayStatus.VERIFIED) {
+        buckets[bucketIndex].verified += 1;
+      }
+    }
+
+    return buckets.map((bucket) => ({
+      day: bucket.label,
+      impressions: bucket.impressions,
+      engagement:
+        bucket.impressions > 0
+          ? Math.round((bucket.verified / bucket.impressions) * 100)
+          : 0,
+    }));
+  }
+
+  private serializePopLog(log: {
+    id: string;
+    device: string;
+    deviceId?: string | null;
+    assetName: string;
+    content: string;
+    playlistName?: string | null;
+    campaignName?: string | null;
+    startTime: Date;
+    endTime?: Date | null;
+    durationSeconds?: number | null;
+    timestamp?: Date;
+    status: ProofOfPlayStatus;
+  }) {
+    const assetName = log.assetName || log.content;
     return {
-      startDate,
-      bucketCount: days,
-      bucketMs: 24 * 60 * 60 * 1000,
-      formatLabel: (date: Date) =>
-        days <= 7
-          ? date.toLocaleDateString('en-US', { weekday: 'short' })
-          : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      id: log.id,
+      device: log.device,
+      deviceId: log.deviceId ?? null,
+      playlistName: log.playlistName ?? null,
+      campaignName: log.campaignName ?? null,
+      assetName,
+      content: assetName,
+      startTime: log.startTime,
+      endTime: log.endTime ?? null,
+      durationSeconds: log.durationSeconds ?? null,
+      timestamp: log.startTime,
+      status: this.toTitleStatus(log.status),
     };
   }
 

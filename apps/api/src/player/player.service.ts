@@ -281,7 +281,17 @@ export class PlayerService {
    */
   async submitPopLogs(
     authHeader: string | undefined,
-    logs: { content: string; status: string; timestamp: string }[],
+    logs: {
+      assetName?: string;
+      content?: string;
+      playlistName?: string;
+      campaignName?: string;
+      status: string;
+      startTime?: string;
+      endTime?: string;
+      durationSeconds?: number;
+      timestamp?: string;
+    }[],
   ) {
     const device = await this.resolveDeviceByToken(authHeader);
 
@@ -294,13 +304,43 @@ export class PlayerService {
     }
 
     await this.prisma.proofOfPlayLog.createMany({
-      data: logs.map((log) => ({
-        organizationId: device.organizationId!,
-        device: device.name,
-        content: log.content,
-        status: log.status === 'VERIFIED' ? ProofOfPlayStatus.VERIFIED : ProofOfPlayStatus.FAILED,
-        timestamp: new Date(log.timestamp),
-      })),
+      data: logs.map((log) => {
+        if (!log.assetName?.trim() && !log.content?.trim()) {
+          throw new BadRequestException('Each proof-of-play log requires assetName or content');
+        }
+        const assetName = (log.assetName ?? log.content ?? 'Unknown asset').trim();
+        const startTime = new Date(log.startTime ?? log.timestamp ?? new Date().toISOString());
+        let durationSeconds =
+          typeof log.durationSeconds === 'number' && log.durationSeconds > 0
+            ? Math.floor(log.durationSeconds)
+            : null;
+        let endTime = log.endTime ? new Date(log.endTime) : null;
+
+        if (!durationSeconds && endTime) {
+          durationSeconds = Math.max(
+            1,
+            Math.round((endTime.getTime() - startTime.getTime()) / 1000),
+          );
+        }
+        if (!endTime && durationSeconds) {
+          endTime = new Date(startTime.getTime() + durationSeconds * 1000);
+        }
+
+        return {
+          organizationId: device.organizationId!,
+          deviceId: device.id,
+          device: device.name,
+          content: assetName,
+          assetName,
+          playlistName: log.playlistName?.trim() || null,
+          campaignName: log.campaignName?.trim() || null,
+          status: log.status === 'VERIFIED' ? ProofOfPlayStatus.VERIFIED : ProofOfPlayStatus.FAILED,
+          timestamp: startTime,
+          startTime,
+          endTime,
+          durationSeconds,
+        };
+      }),
     });
 
     this.logger.log(`Received ${logs.length} PoP logs from device ${device.name}`);

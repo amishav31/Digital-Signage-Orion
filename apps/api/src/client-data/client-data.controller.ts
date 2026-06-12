@@ -24,6 +24,7 @@ import { CreateScheduleEventDto } from './dto/create-schedule-event.dto';
 import { UpdateScheduleEventDto } from './dto/update-schedule-event.dto';
 import { CreateTickerDto } from './dto/create-ticker.dto';
 import { UpdateTickerDto } from './dto/update-ticker.dto';
+import { ReportsQueryDto } from './dto/reports-query.dto';
 
 @Controller('client-data')
 @UseGuards(JwtAuthGuard)
@@ -244,21 +245,24 @@ export class ClientDataController {
   }
 
   @Get('reports')
-  reports(@CurrentActor() actor: RequestActor, @Query('range') range?: string) {
-    return this.clientDataService.reports(actor, range);
+  reports(@CurrentActor() actor: RequestActor, @Query() query: ReportsQueryDto) {
+    return this.clientDataService.reports(actor, query);
   }
 
   @Get('reports/export')
-  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
   async exportReport(
     @CurrentActor() actor: RequestActor,
-    @Query('range') range: string | undefined,
+    @Query() query: ReportsQueryDto,
   ) {
-    const csv = await this.clientDataService.exportReportCsv(actor, range);
-    const safeRange = (range ?? '7d').replace(/[^a-z0-9]/gi, '') || '7d';
-    const filename = `proof-of-play-${safeRange}-${new Date().toISOString().slice(0, 10)}.csv`;
-    return new StreamableFile(Buffer.from(csv, 'utf-8'), {
-      type: 'text/csv; charset=utf-8',
+    const buffer = await this.clientDataService.exportReportXlsx(actor, query);
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '_');
+    const filename = `ProofOfPlay_Report_${stamp}.xlsx`;
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       disposition: `attachment; filename="${filename}"`,
     });
   }

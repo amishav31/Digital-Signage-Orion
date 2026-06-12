@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Clock, Plus, Trash2, GripVertical, Image as ImageIcon, Video, FileText } from "lucide-react";
+import { ArrowLeft, Clock, Plus, Trash2, GripVertical, Image as ImageIcon, Video, FileText, Globe } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { apiRequest, apiDelete } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -13,6 +13,8 @@ interface Asset {
     name: string;
     type: string;
     downloadUrl: string | null;
+    url?: string | null;
+    defaultDurationSeconds?: number | null;
 }
 
 interface CampaignAsset {
@@ -23,6 +25,7 @@ interface CampaignAsset {
     durationSeconds: number;
     position: number;
     downloadUrl: string | null;
+    url?: string | null;
 }
 
 export default function CampaignBuilderPage() {
@@ -68,7 +71,7 @@ export default function CampaignBuilderPage() {
             const added = await apiRequest<{ success: boolean; campaignAssetId: string; durationSeconds?: number }>(`/api/client-data/campaigns/${campaignId}/assets`, {
                 method: "POST",
                 headers: { "x-organization-id": activeOrganizationId! },
-                body: JSON.stringify({ assetId: asset.id, durationSeconds: 10 })
+                body: JSON.stringify({ assetId: asset.id, durationSeconds: asset.defaultDurationSeconds ?? 10 })
             });
             
             if (added.success) {
@@ -77,7 +80,7 @@ export default function CampaignBuilderPage() {
                     {
                         ...asset,
                         campaignAssetId: added.campaignAssetId,
-                        durationSeconds: added.durationSeconds ?? 10,
+                        durationSeconds: added.durationSeconds ?? asset.defaultDurationSeconds ?? 10,
                         position: prev.length,
                     },
                 ]);
@@ -168,6 +171,7 @@ export default function CampaignBuilderPage() {
     const getIcon = (type: string) => {
         if (type === "VIDEO") return <Video size={24} />;
         if (type === "IMAGE") return <ImageIcon size={24} />;
+        if (type === "URL") return <Globe size={24} />;
         return <FileText size={24} />;
     };
 

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     UploadCloud, Search, Image as ImageIcon, Video,
     FileText, Trash2, Link as LinkIcon, X,
-    Eye, CloudUpload, FileCode, Archive, AlertCircle, Loader2, Tag
+    Eye, CloudUpload, FileCode, Archive, AlertCircle, Loader2, Tag, Globe, Plus
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { ReadOnlyNotice } from "@/components/shared/ReadOnlyNotice";
@@ -16,10 +16,12 @@ interface Asset {
     id: string;
     organizationId: string;
     name: string;
-    type: "IMAGE" | "VIDEO" | "HTML" | "DOCUMENT";
+    type: "IMAGE" | "VIDEO" | "HTML" | "DOCUMENT" | "URL";
     status: "UPLOADING" | "READY" | "ERROR";
     mimeType: string;
     fileSize: number;
+    url?: string | null;
+    defaultDurationSeconds?: number | null;
     width: number | null;
     height: number | null;
     durationMs: number | null;
@@ -65,6 +67,7 @@ const TAB_TO_TYPE: Record<string, string | undefined> = {
     Videos: "VIDEO",
     HTML: "HTML",
     Docs: "DOCUMENT",
+    URLs: "URL",
 };
 
 export default function AssetsPage() {
@@ -75,6 +78,9 @@ export default function AssetsPage() {
     const [activeTab, setActiveTab] = useState("All");
     const [search, setSearch] = useState("");
     const [isUploadOpen, setIsUploadOpen] = useState(false);
+    const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+    const [urlForm, setUrlForm] = useState({ name: "", url: "", durationSeconds: "15" });
+    const [isCreatingUrl, setIsCreatingUrl] = useState(false);
     const [dragActive, setDragActive] = useState(false);
     const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
     const [isUploading, setIsUploading] = useState(false);
@@ -129,6 +135,7 @@ export default function AssetsPage() {
             case "VIDEO": return <Video size={size} style={{ color: "hsl(var(--accent-primary))" }} />;
             case "IMAGE": return <ImageIcon size={size} style={{ color: "hsl(var(--accent-secondary))" }} />;
             case "HTML": return <FileCode size={size} style={{ color: "hsl(var(--accent-tertiary))" }} />;
+            case "URL": return <Globe size={size} style={{ color: "hsl(var(--accent-primary))" }} />;
             default: return <FileText size={size} style={{ color: "hsl(var(--text-muted))" }} />;
         }
     };
@@ -137,6 +144,7 @@ export default function AssetsPage() {
         if (type === "VIDEO") return "hsl(var(--accent-primary))";
         if (type === "IMAGE") return "hsl(var(--accent-secondary))";
         if (type === "HTML") return "hsl(var(--accent-tertiary))";
+        if (type === "URL") return "hsl(var(--accent-primary))";
         return "hsl(var(--text-muted))";
     };
 
@@ -158,11 +166,12 @@ export default function AssetsPage() {
             const detail = await apiRequest<Asset & { downloadUrl: string }>(
                 `/api/organizations/${orgId}/assets/${assetId}`
             );
-            if (detail.downloadUrl) {
-                await navigator.clipboard.writeText(detail.downloadUrl);
-                toast.success("Download URL copied to clipboard");
+            const link = detail.type === "URL" ? detail.url : detail.downloadUrl;
+            if (link) {
+                await navigator.clipboard.writeText(link);
+                toast.success(detail.type === "URL" ? "Website URL copied to clipboard" : "Download URL copied to clipboard");
             } else {
-                toast.error("No download URL available");
+                toast.error("No URL available");
             }
         } catch {
             toast.error("Failed to get asset URL");
@@ -260,6 +269,33 @@ export default function AssetsPage() {
         }
     };
 
+    const handleCreateUrlAsset = async () => {
+        if (!canEdit || !orgId) return toast.error("You only have view access to assets.");
+        const name = urlForm.name.trim();
+        const url = urlForm.url.trim();
+        const durationSeconds = Math.floor(Number(urlForm.durationSeconds));
+        if (!name) return toast.error("Asset name is required");
+        if (!url) return toast.error("URL is required");
+        if (!/^https?:\/\/.+/i.test(url)) return toast.error("URL must start with http:// or https://");
+        if (!Number.isFinite(durationSeconds) || durationSeconds < 1) return toast.error("Duration must be at least 1 second");
+
+        setIsCreatingUrl(true);
+        try {
+            const created = await apiRequest<Asset>(
+                `/api/organizations/${orgId}/assets/url`,
+                { method: "POST", body: JSON.stringify({ name, url, durationSeconds }) },
+            );
+            setAssets(prev => [created, ...prev]);
+            setIsUrlModalOpen(false);
+            setUrlForm({ name: "", url: "", durationSeconds: "15" });
+            toast.success("URL asset created");
+        } catch {
+            toast.error("Failed to create URL asset");
+        } finally {
+            setIsCreatingUrl(false);
+        }
+    };
+
     const handleViewAsset = async (asset: Asset) => {
         if (!orgId) return;
         try {
@@ -302,14 +338,19 @@ export default function AssetsPage() {
                     <h1 style={{ fontSize: "1.875rem", fontWeight: 700, marginBottom: 4 }}>Asset Library</h1>
                     <p style={{ color: "hsl(var(--text-secondary))" }}>Centralized repository for all your digital signage content.</p>
                 </div>
-                <button className="btn-primary" disabled={!canEdit || isUploading} onClick={() => canEdit && setIsUploadOpen(true)} style={{ display: "flex", alignItems: "center", gap: 10, opacity: canEdit ? 1 : 0.55, cursor: canEdit ? "pointer" : "not-allowed" }}>
-                    <UploadCloud size={18} /> <span>Ingest Media</span>
-                </button>
+                <div style={{ display: "flex", gap: 12 }}>
+                    <button className="btn-outline" disabled={!canEdit || isCreatingUrl} onClick={() => canEdit && setIsUrlModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: 10, opacity: canEdit ? 1 : 0.55, cursor: canEdit ? "pointer" : "not-allowed" }}>
+                        <Plus size={18} /> <span>Add URL Asset</span>
+                    </button>
+                    <button className="btn-primary" disabled={!canEdit || isUploading} onClick={() => canEdit && setIsUploadOpen(true)} style={{ display: "flex", alignItems: "center", gap: 10, opacity: canEdit ? 1 : 0.55, cursor: canEdit ? "pointer" : "not-allowed" }}>
+                        <UploadCloud size={18} /> <span>Ingest Media</span>
+                    </button>
+                </div>
             </div>
 
             <div className="glass-panel" style={{ padding: 16, marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", gap: 6, background: "hsla(var(--bg-base), 0.7)", padding: 4, borderRadius: 10 }}>
-                    {["All", "Images", "Videos", "HTML", "Docs"].map(tab => (
+                    {["All", "Images", "Videos", "HTML", "Docs", "URLs"].map(tab => (
                         <button key={tab} onClick={() => setActiveTab(tab)} style={{
                             padding: "8px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500,
                             background: activeTab === tab ? "hsla(var(--accent-primary), 0.15)" : "transparent",
@@ -398,9 +439,12 @@ export default function AssetsPage() {
                                             </div>
                                         )}
                                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "hsl(var(--text-muted))", marginBottom: 12 }}>
-                                            <span>{formatFileSize(asset.fileSize)}</span>
+                                            <span>{asset.type === "URL" ? `${asset.defaultDurationSeconds ?? 15}s default` : formatFileSize(asset.fileSize)}</span>
                                             <span>{formatDate(asset.createdAt)}</span>
                                         </div>
+                                        {asset.type === "URL" && asset.url && (
+                                            <p style={{ fontSize: "0.72rem", color: "hsl(var(--text-secondary))", marginBottom: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={asset.url}>{asset.url}</p>
+                                        )}
                                         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: "auto", borderTop: "1px solid hsla(var(--border-subtle), 0.5)", paddingTop: 12 }}>
                                             <button className="btn-icon-soft" style={{ padding: "6px" }} onClick={() => handleCopyLink(asset.id)} title="Copy Link"><LinkIcon size={16} /></button>
                                             <button className="btn-icon-soft" disabled={!canEdit} style={{ padding: "6px", color: "hsl(var(--status-danger))", opacity: canEdit ? 1 : 0.45, cursor: canEdit ? "pointer" : "not-allowed" }} onClick={() => handleDelete(asset.id)} title="Delete"><Trash2 size={16} /></button>
@@ -412,6 +456,52 @@ export default function AssetsPage() {
                     </AnimatePresence>
                 </div>
             )}
+
+            {/* URL Asset Modal */}
+            <AnimatePresence>
+                {isUrlModalOpen && (
+                    <motion.div key="url-asset" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        style={{ position: "fixed", inset: 0, background: "hsla(var(--overlay-base), 0.74)", backdropFilter: "blur(12px)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+                        onClick={() => !isCreatingUrl && setIsUrlModalOpen(false)}>
+                        <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
+                            className="glass-panel" style={{ width: "100%", maxWidth: 500, padding: 32 }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+                                <h2 style={{ fontSize: "1.5rem", fontWeight: 700, display: "flex", alignItems: "center", gap: 12 }}>
+                                    <Globe style={{ color: "hsl(var(--accent-primary))" }} size={28} /> Add URL Asset
+                                </h2>
+                                <button className="btn-icon-soft" onClick={() => setIsUrlModalOpen(false)} disabled={isCreatingUrl}><X size={24} /></button>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                                <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                    <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>Asset Name</span>
+                                    <input type="text" value={urlForm.name} onChange={e => setUrlForm(prev => ({ ...prev, name: e.target.value }))}
+                                        placeholder="Weather Dashboard"
+                                        style={{ padding: "10px 14px", borderRadius: 10, background: "hsla(var(--bg-base), 0.8)", border: "1px solid hsla(var(--border-subtle), 1)", color: "hsl(var(--text-primary))", fontSize: "0.9rem", outline: "none" }} />
+                                </label>
+                                <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                    <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>URL</span>
+                                    <input type="url" value={urlForm.url} onChange={e => setUrlForm(prev => ({ ...prev, url: e.target.value }))}
+                                        placeholder="https://weather.com"
+                                        style={{ padding: "10px 14px", borderRadius: 10, background: "hsla(var(--bg-base), 0.8)", border: "1px solid hsla(var(--border-subtle), 1)", color: "hsl(var(--text-primary))", fontSize: "0.9rem", outline: "none" }} />
+                                </label>
+                                <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                    <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>Duration (seconds)</span>
+                                    <input type="number" min={1} value={urlForm.durationSeconds} onChange={e => setUrlForm(prev => ({ ...prev, durationSeconds: e.target.value }))}
+                                        placeholder="15"
+                                        style={{ padding: "10px 14px", borderRadius: 10, background: "hsla(var(--bg-base), 0.8)", border: "1px solid hsla(var(--border-subtle), 1)", color: "hsl(var(--text-primary))", fontSize: "0.9rem", outline: "none" }} />
+                                </label>
+                            </div>
+                            <div style={{ marginTop: 32, display: "flex", justifyContent: "flex-end", gap: 12 }}>
+                                <button className="btn-outline" onClick={() => setIsUrlModalOpen(false)} disabled={isCreatingUrl}>Cancel</button>
+                                <button className="btn-primary" disabled={!canEdit || isCreatingUrl} onClick={handleCreateUrlAsset} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    {isCreatingUrl ? <Loader2 size={16} className="animate-spin-slow" /> : <Plus size={16} />}
+                                    Create URL Asset
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Upload Modal */}
             <AnimatePresence>
@@ -486,7 +576,8 @@ export default function AssetsPage() {
                                     { label: "Size", value: formatFileSize(selectedAsset.fileSize) },
                                     { label: "Dimensions", value: selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}×${selectedAsset.height}` : "N/A" },
                                     { label: "Uploaded", value: formatDate(selectedAsset.createdAt) },
-                                    { label: "Duration", value: formatDuration(selectedAsset.durationMs) || "N/A" },
+                                    { label: "Duration", value: selectedAsset.type === "URL" ? `${selectedAsset.defaultDurationSeconds ?? 15}s default` : (formatDuration(selectedAsset.durationMs) || "N/A") },
+                                    ...(selectedAsset.type === "URL" ? [{ label: "Website URL", value: selectedAsset.url || "N/A" }] : []),
                                     { label: "MIME Type", value: selectedAsset.mimeType },
                                     { label: "Uploaded By", value: selectedAsset.uploadedBy?.fullName || "Unknown" },
                                 ].map((f, i) => (
@@ -509,8 +600,8 @@ export default function AssetsPage() {
                             )}
 
                             <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-                                {selectedAsset.downloadUrl && (
-                                    <a href={selectedAsset.downloadUrl} target="_blank" rel="noopener noreferrer" className="btn-outline" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+                                {(selectedAsset.type === "URL" ? selectedAsset.url : selectedAsset.downloadUrl) && (
+                                    <a href={(selectedAsset.type === "URL" ? selectedAsset.url : selectedAsset.downloadUrl) ?? undefined} target="_blank" rel="noopener noreferrer" className="btn-outline" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
                                         <LinkIcon size={16} /> Open in new tab
                                     </a>
                                 )}

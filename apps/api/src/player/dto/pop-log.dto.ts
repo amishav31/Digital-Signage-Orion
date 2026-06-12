@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsDateString, IsEnum, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 enum PopStatus {
   VERIFIED = 'VERIFIED',
@@ -7,14 +16,42 @@ enum PopStatus {
 }
 
 class PopLogEntry {
+  @IsOptional()
   @IsString()
-  content!: string;
+  assetName?: string;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
+
+  @IsOptional()
+  @IsString()
+  playlistName?: string;
+
+  @IsOptional()
+  @IsString()
+  campaignName?: string;
 
   @IsEnum(PopStatus)
   status!: PopStatus;
 
+  @IsOptional()
   @IsDateString()
-  timestamp!: string;
+  startTime?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endTime?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  durationSeconds?: number;
+
+  /** @deprecated Use startTime */
+  @IsOptional()
+  @IsDateString()
+  timestamp?: string;
 }
 
 export class SubmitPopLogsDto {
@@ -23,3 +60,5 @@ export class SubmitPopLogsDto {
   @Type(() => PopLogEntry)
   logs!: PopLogEntry[];
 }
+
+export type PopLogInput = PopLogEntry;

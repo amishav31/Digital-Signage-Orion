@@ -22,7 +22,7 @@ Our platform has a backend (NestJS) that manages `Organizations`, `Campaigns`, `
 1.  **Tech Stack:**
     *   Language: Kotlin
     *   UI: Jetpack Compose (preferred) or XML Layouts.
-    *   Media Playback: **ExoPlayer** for videos (gapless loop), **Coil/Glide** for images, and **WebView** for HTML links.
+    *   Media Playback: **ExoPlayer** for videos (gapless loop), **Coil/Glide** for images, and **WebView** for HTML and URL assets.
     *   Networking: **Retrofit** with OkHttp.
     *   Asynchronous Operations: **Kotlin Coroutines** and **Flows**.
     *   Dependency Injection: **Hilt**.
@@ -191,6 +191,7 @@ Fetch the active playlist assigned to this device, including pre-signed S3 downl
       "durationSeconds": 10,
       "position": 0,
       "downloadUrl": "https://s3.ap-south-1.amazonaws.com/orion-assets/...",
+      "url": null,
       "fileSize": 245670
     },
     {
@@ -201,13 +202,25 @@ Fetch the active playlist assigned to this device, including pre-signed S3 downl
       "durationSeconds": 30,
       "position": 1,
       "downloadUrl": "https://s3.ap-south-1.amazonaws.com/orion-assets/...",
+      "url": null,
       "fileSize": 15234567
+    },
+    {
+      "id": "clxyz999",
+      "name": "Weather Dashboard",
+      "type": "URL",
+      "mimeType": "text/uri-list",
+      "durationSeconds": 15,
+      "position": 2,
+      "downloadUrl": null,
+      "url": "https://weather.com",
+      "fileSize": 0
     }
   ]
 }
 ```
 
-**Asset types:** `IMAGE`, `VIDEO`, `HTML`, `DOCUMENT`
+**Asset types:** `IMAGE`, `VIDEO`, `HTML`, `DOCUMENT`, `URL`
 
 **Playback logic:**
 1. Sort assets by `position` (already sorted in response)
@@ -215,7 +228,8 @@ Fetch the active playlist assigned to this device, including pre-signed S3 downl
 3. For `IMAGE`: display using Glide/Coil for the specified duration
 4. For `VIDEO`: play using ExoPlayer (may exceed `durationSeconds` — play to completion)
 5. For `HTML`: render in a WebView for the specified duration
-6. Loop back to position 0 when the last asset finishes
+6. For `URL`: load `url` in a WebView for `durationSeconds` (no download/cache — `downloadUrl` is null)
+7. Loop back to position 0 when the last asset finishes
 
 ---
 
@@ -228,25 +242,30 @@ Submit queued proof-of-play analytics. Call every ~5 minutes, or when the offlin
 {
   "logs": [
     {
-      "content": "welcome-banner.jpg",
+      "assetName": "welcome-banner.jpg",
+      "playlistName": "Lobby Playlist",
+      "campaignName": "Spring Promo",
       "status": "VERIFIED",
-      "timestamp": "2026-04-22T10:30:00.000Z"
+      "startTime": "2026-04-22T10:30:00.000Z",
+      "endTime": "2026-04-22T10:30:10.000Z",
+      "durationSeconds": 10
     },
     {
       "content": "promo-video.mp4",
+      "playlistName": "Lobby Playlist",
+      "campaignName": "Spring Promo",
       "status": "VERIFIED",
-      "timestamp": "2026-04-22T10:30:10.000Z"
-    },
-    {
-      "content": "broken-asset.mp4",
-      "status": "FAILED",
-      "timestamp": "2026-04-22T10:30:40.000Z"
+      "timestamp": "2026-04-22T10:30:10.000Z",
+      "durationSeconds": 30
     }
   ]
 }
 ```
+- `assetName` (preferred) or legacy `content`
+- `playlistName`, `campaignName`: optional context for reporting
+- `startTime` (preferred) or legacy `timestamp`
+- `endTime`, `durationSeconds`: optional; server derives missing values when possible
 - `status`: `"VERIFIED"` (played successfully) or `"FAILED"` (playback error)
-- `timestamp`: ISO 8601 string — when the asset started playing
 
 **Response (200):**
 ```json
@@ -400,18 +419,25 @@ data class PlaylistInfo(val id: String, val name: String)
 data class AssetInfo(
     val id: String,
     val name: String,
-    val type: String,        // IMAGE, VIDEO, HTML, DOCUMENT
+    val type: String,        // IMAGE, VIDEO, HTML, DOCUMENT, URL
     val mimeType: String,
     val durationSeconds: Int,
     val position: Int,
     val downloadUrl: String?,
+    val url: String?,        // populated for type URL; use WebView, no S3 download
     val fileSize: Int
 )
 
 data class PopLogEntry(
-    val content: String,
-    val status: String,      // "VERIFIED" or "FAILED"
-    val timestamp: String    // ISO 8601
+    val assetName: String? = null,
+    val content: String? = null,
+    val playlistName: String? = null,
+    val campaignName: String? = null,
+    val status: String,              // "VERIFIED" or "FAILED"
+    val startTime: String? = null,   // ISO 8601
+    val endTime: String? = null,
+    val durationSeconds: Int? = null,
+    val timestamp: String? = null,   // legacy alias for startTime
 )
 data class PopLogsRequest(val logs: List<PopLogEntry>)
 data class PopLogsResponse(val received: Int)
