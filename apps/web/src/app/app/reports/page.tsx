@@ -61,6 +61,8 @@ type ReportResponse = {
         limit: number;
         totalPages: number;
     };
+    lastLogAt: string | null;
+    lastLogDevice: string | null;
 };
 
 const RANGE_LABEL: Record<Range, string> = {
@@ -94,7 +96,7 @@ const formatDuration = (seconds: number | null) => {
 
 export default function ReportsPage() {
     const { activeOrganizationId } = useAuth();
-    const [dateRange, setDateRange] = useState<Range>("7d");
+    const [dateRange, setDateRange] = useState<Range>("today");
     const [customStart, setCustomStart] = useState("");
     const [customEnd, setCustomEnd] = useState("");
     const [logSearch, setLogSearch] = useState("");
@@ -241,6 +243,8 @@ export default function ReportsPage() {
     ], [reportData]);
 
     const hasData = (meta?.total ?? 0) > 0;
+    const lastLogAt = reportData?.lastLogAt ? new Date(reportData.lastLogAt) : null;
+    const showStaleLogHint = !hasData && lastLogAt && dateRange !== "all";
 
     return (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
@@ -252,6 +256,13 @@ export default function ReportsPage() {
                             ? `${meta?.total ?? 0} total records`
                             : "Collecting metrics..."}
                     </p>
+                    {lastLogAt && (
+                        <p style={{ color: "hsl(var(--text-muted))", fontSize: "0.8rem", marginTop: 6 }}>
+                            Last log received: {lastLogAt.toLocaleString()}
+                            {reportData?.lastLogDevice ? ` from ${reportData.lastLogDevice}` : ""}
+                            {" "}• Android players sync logs every ~5 minutes
+                        </p>
+                    )}
                 </div>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                     <div className="glass-panel" style={{ display: "flex", padding: 4, borderRadius: 10, flexWrap: "wrap" }}>
@@ -297,6 +308,21 @@ export default function ReportsPage() {
                         <p style={{ fontSize: "0.75rem", color: "hsl(var(--text-muted))" }}>{loadError}</p>
                     </div>
                     <button className="btn-outline" onClick={() => loadReport()}>Retry</button>
+                </div>
+            )}
+
+            {showStaleLogHint && (
+                <div className="glass-panel" style={{ padding: 18, marginBottom: 24, border: "1px solid hsla(var(--status-warning), 0.3)", display: "flex", alignItems: "flex-start", gap: 12 }}>
+                    <Clock size={18} style={{ color: "hsl(var(--status-warning))", marginTop: 2 }} />
+                    <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: "0.85rem", fontWeight: 600 }}>No logs in this date range</p>
+                        <p style={{ fontSize: "0.75rem", color: "hsl(var(--text-muted))", marginTop: 4 }}>
+                            The most recent playback log is from {lastLogAt?.toLocaleString()}.
+                            Try &quot;Last 7 days&quot; or &quot;All records&quot;, or wait a few minutes after playback on a paired Android device.
+                            Logs are only submitted by the player app, not from browser previews.
+                        </p>
+                    </div>
+                    <button className="btn-outline" onClick={() => setDateRange("7d")}>Last 7 days</button>
                 </div>
             )}
 

@@ -107,12 +107,46 @@ export class AssetsService {
       data: { s3Key },
     });
 
-    const uploadUrl = await this.s3.generateUploadUrl(s3Key, dto.mimeType);
+    const uploadUrl = this.s3.useLocalStorage
+      ? this.s3.buildLocalUploadUrl(organizationId, asset.id)
+      : await this.s3.generateUploadUrl(s3Key, dto.mimeType);
 
     return {
       asset: this.formatAsset(updatedAsset),
       uploadUrl,
     };
+  }
+
+  async receiveUpload(
+    actor: RequestActor,
+    organizationId: string,
+    assetId: string,
+    data: Buffer,
+  ) {
+    this.ensureOrganizationAccess(actor, organizationId);
+
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, organizationId },
+    });
+
+    if (!asset) {
+      throw new NotFoundException('Asset not found');
+    }
+
+    if (asset.type === AssetType.URL) {
+      throw new BadRequestException('URL assets cannot be uploaded as files');
+    }
+
+    if (!asset.s3Key) {
+      throw new BadRequestException('Asset is missing storage key');
+    }
+
+    if (asset.status !== AssetStatus.UPLOADING) {
+      throw new BadRequestException('Asset is not awaiting upload');
+    }
+
+    await this.s3.saveLocalFile(asset.s3Key, data);
+    return { success: true };
   }
 
   async confirmUpload(actor: RequestActor, organizationId: string, assetId: string) {

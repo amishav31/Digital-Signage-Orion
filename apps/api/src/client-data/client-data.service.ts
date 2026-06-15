@@ -1101,7 +1101,7 @@ export class ClientDataService {
     const limit = Math.min(500, Math.max(1, query.limit ?? 100));
     const { where, rangeStart, rangeEnd } = this.buildPopLogWhere(organizationId, query);
 
-    const [devices, organization, totalLogs, logs, aggregateLogs] = await Promise.all([
+    const [devices, organization, totalLogs, logs, aggregateLogs, latestLog] = await Promise.all([
       this.prisma.device.findMany({ where: { organizationId }, orderBy: { name: 'asc' } }),
       this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
       this.prisma.proofOfPlayLog.count({ where }),
@@ -1127,6 +1127,11 @@ export class ClientDataService {
           endTime: true,
           durationSeconds: true,
         },
+      }),
+      this.prisma.proofOfPlayLog.findFirst({
+        where: { organizationId },
+        orderBy: { startTime: 'desc' },
+        select: { startTime: true, device: true },
       }),
     ]);
 
@@ -1235,6 +1240,8 @@ export class ClientDataService {
         limit,
         totalPages: Math.max(1, Math.ceil(totalLogs / limit)),
       },
+      lastLogAt: latestLog?.startTime ?? null,
+      lastLogDevice: latestLog?.device ?? null,
     };
   }
 
@@ -1368,7 +1375,9 @@ export class ClientDataService {
     if (normalized === 'today') {
       const rangeStart = new Date(now);
       rangeStart.setHours(0, 0, 0, 0);
-      return { rangeStart, rangeEnd: now };
+      const rangeEnd = new Date(now);
+      rangeEnd.setHours(23, 59, 59, 999);
+      return { rangeStart, rangeEnd };
     }
 
     const days = normalized === '30d' ? 30 : normalized === '24h' ? 1 : 7;

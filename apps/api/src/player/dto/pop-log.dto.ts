@@ -1,7 +1,6 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
-  IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
@@ -13,6 +12,18 @@ import {
 enum PopStatus {
   VERIFIED = 'VERIFIED',
   FAILED = 'FAILED',
+}
+
+function normalizePopTimestamp(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return undefined;
 }
 
 class PopLogEntry {
@@ -32,15 +43,22 @@ class PopLogEntry {
   @IsString()
   campaignName?: string;
 
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const upper = value.trim().toUpperCase();
+    return upper === 'VERIFIED' || upper === 'FAILED' ? upper : value;
+  })
   @IsEnum(PopStatus)
   status!: PopStatus;
 
   @IsOptional()
-  @IsDateString()
+  @Transform(({ value }) => normalizePopTimestamp(value))
+  @IsString()
   startTime?: string;
 
   @IsOptional()
-  @IsDateString()
+  @Transform(({ value }) => normalizePopTimestamp(value))
+  @IsString()
   endTime?: string;
 
   @IsOptional()
@@ -50,7 +68,8 @@ class PopLogEntry {
 
   /** @deprecated Use startTime */
   @IsOptional()
-  @IsDateString()
+  @Transform(({ value }) => normalizePopTimestamp(value))
+  @IsString()
   timestamp?: string;
 }
 

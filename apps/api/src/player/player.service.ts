@@ -300,33 +300,49 @@ export class PlayerService {
     }
 
     if (!logs?.length) {
-      return { received: 0 };
+      return { received: 0, skipped: 0 };
     }
 
-    await this.prisma.proofOfPlayLog.createMany({
-      data: logs.map((log) => {
-        if (!log.assetName?.trim() && !log.content?.trim()) {
-          throw new BadRequestException('Each proof-of-play log requires assetName or content');
-        }
-        const assetName = (log.assetName ?? log.content ?? 'Unknown asset').trim();
-        const startTime = new Date(log.startTime ?? log.timestamp ?? new Date().toISOString());
-        let durationSeconds =
-          typeof log.durationSeconds === 'number' && log.durationSeconds > 0
-            ? Math.floor(log.durationSeconds)
-            : null;
-        let endTime = log.endTime ? new Date(log.endTime) : null;
+    const rows = logs.flatMap((log) => {
+      if (!log.assetName?.trim() && !log.content?.trim()) {
+        this.logger.warn(`Skipping PoP log from ${device.name}: missing assetName/content`);
+        return [];
+      }
 
-        if (!durationSeconds && endTime) {
-          durationSeconds = Math.max(
-            1,
-            Math.round((endTime.getTime() - startTime.getTime()) / 1000),
-          );
-        }
-        if (!endTime && durationSeconds) {
-          endTime = new Date(startTime.getTime() + durationSeconds * 1000);
-        }
+      const assetName = (log.assetName ?? log.content ?? 'Unknown asset').trim();
+      const rawStart = log.startTime ?? log.timestamp;
+      const startTime = rawStart ? new Date(rawStart) : new Date();
+      if (Number.isNaN(startTime.getTime())) {
+        this.logger.warn(`Skipping PoP log from ${device.name}: invalid start time for ${assetName}`);
+        return [];
+      }
 
-        return {
+      let durationSeconds =
+        typeof log.durationSeconds === 'number' && log.durationSeconds > 0
+          ? Math.floor(log.durationSeconds)
+          : null;
+      let endTime = log.endTime ? new Date(log.endTime) : null;
+      if (endTime && Number.isNaN(endTime.getTime())) {
+        endTime = null;
+      }
+
+      if (!durationSeconds && endTime) {
+        durationSeconds = Math.max(
+          1,
+          Math.round((endTime.getTime() - startTime.getTime()) / 1000),
+        );
+      }
+      if (!endTime && durationSeconds) {
+        endTime = new Date(startTime.getTime() + durationSeconds * 1000);
+      }
+
+      const normalizedStatus =
+        String(log.status).trim().toUpperCase() === 'VERIFIED'
+          ? ProofOfPlayStatus.VERIFIED
+          : ProofOfPlayStatus.FAILED;
+
+      return [
+        {
           organizationId: device.organizationId!,
           deviceId: device.id,
           device: device.name,
@@ -334,18 +350,27 @@ export class PlayerService {
           assetName,
           playlistName: log.playlistName?.trim() || null,
           campaignName: log.campaignName?.trim() || null,
-          status: log.status === 'VERIFIED' ? ProofOfPlayStatus.VERIFIED : ProofOfPlayStatus.FAILED,
+          status: normalizedStatus,
           timestamp: startTime,
           startTime,
           endTime,
           durationSeconds,
-        };
-      }),
+        },
+      ];
     });
 
-    this.logger.log(`Received ${logs.length} PoP logs from device ${device.name}`);
+    if (!rows.length) {
+      return { received: 0, skipped: logs.length };
+    }
 
-    return { received: logs.length };
+    await this.prisma.proofOfPlayLog.createMany({ data: rows });
+
+    this.logger.log(
+      `Received ${rows.length} PoP logs from device ${device.name}` +
+        (rows.length < logs.length ? ` (${logs.length - rows.length} skipped)` : ''),
+    );
+
+    return { received: rows.length, skipped: logs.length - rows.length };
   }
 
   private calculateUptime(createdAt: Date): string {

@@ -5,7 +5,7 @@ import {
     LayoutDashboard, MonitorPlay, ListVideo, 
     Image as ImageIcon, Settings, Activity, 
     X, Type, Folder, Layout, LogOut,
-    HelpCircle, ShieldCheck, CalendarClock, SlidersHorizontal
+    HelpCircle, ShieldCheck, CalendarClock
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "./AuthProvider";
@@ -20,7 +20,6 @@ const navItems = [
     { name: "Tickers", path: "/tickers", icon: Type },
     { name: "Schedule", path: "/schedule", icon: CalendarClock },
     { name: "Analytics", path: "/reports", icon: Activity },
-    { name: "Control", path: "/control", icon: SlidersHorizontal },
     { name: "Settings", path: "/settings", icon: Settings },
 ];
 

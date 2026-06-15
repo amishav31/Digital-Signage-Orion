@@ -10,7 +10,8 @@ import { toast } from "react-hot-toast";
 import { ReadOnlyNotice } from "@/components/shared/ReadOnlyNotice";
 import { useClientFeature } from "@/lib/permissions/use-client-feature";
 import { useAuth } from "@/components/AuthProvider";
-import { apiRequest } from "@/lib/api";
+import { API_BASE, apiRequest } from "@/lib/api";
+import { AUTH_TOKEN_STORAGE_KEY } from "@/lib/auth-storage";
 
 interface Asset {
     id: string;
@@ -211,6 +212,10 @@ export default function AssetsPage() {
                     const xhr = new XMLHttpRequest();
                     xhr.open("PUT", uploadUrl, true);
                     xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+                    if (uploadUrl.startsWith(API_BASE)) {
+                        const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+                        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+                    }
 
                     xhr.upload.onprogress = (e) => {
                         if (e.lengthComputable) {

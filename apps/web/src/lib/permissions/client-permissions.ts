@@ -99,7 +99,6 @@ export const clientRouteRequirements: Array<{ prefix: string; requirement: Clien
     { prefix: "/app/schedule", requirement: { featureKey: "SCHEDULE", requiredAccess: "VIEW" } },
     { prefix: "/app/tickers", requirement: { featureKey: "TICKERS", requiredAccess: "VIEW" } },
     { prefix: "/app/devices", requirement: { featureKey: "DEVICES", requiredAccess: "VIEW" } },
-    { prefix: "/app/control", requirement: { featureKey: "DEVICES", requiredAccess: "CONTROL" } },
     { prefix: "/app/designer", requirement: { featureKey: "PLAYLISTS", requiredAccess: "EDIT" } },
     { prefix: "/app/reports", requirement: { featureKey: "REPORTS", requiredAccess: "VIEW" } },
     { prefix: "/app/settings", requirement: { featureKey: "SETTINGS", requiredAccess: "VIEW" } },

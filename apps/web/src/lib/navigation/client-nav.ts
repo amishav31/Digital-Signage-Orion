@@ -1,4 +1,4 @@
-import { Activity, Folder, Image as ImageIcon, Layout, LayoutDashboard, ListVideo, MonitorPlay, Settings, Type, CalendarClock, SlidersHorizontal } from "lucide-react";
+import { Activity, Folder, Image as ImageIcon, Layout, LayoutDashboard, ListVideo, MonitorPlay, Settings, Type, CalendarClock } from "lucide-react";
 import type { PortalNavItem } from "@/lib/navigation/platform-nav";
 
 export const clientNavItems: PortalNavItem[] = [
@@ -11,6 +11,5 @@ export const clientNavItems: PortalNavItem[] = [
     { name: "Tickers", path: "/app/tickers", icon: Type, featureKey: "TICKERS", requiredAccess: "VIEW" },
     { name: "Schedule", path: "/app/schedule", icon: CalendarClock, featureKey: "SCHEDULE", requiredAccess: "VIEW" },
     { name: "Analytics", path: "/app/reports", icon: Activity, featureKey: "REPORTS", requiredAccess: "VIEW" },
-    { name: "Control", path: "/app/control", icon: SlidersHorizontal, featureKey: "DEVICES", requiredAccess: "CONTROL" },
     { name: "Settings", path: "/app/settings", icon: Settings, featureKey: "SETTINGS", requiredAccess: "VIEW" },
 ];

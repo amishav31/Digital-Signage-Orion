@@ -1,8 +1,14 @@
-import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, UsePipes, ValidationPipe } from '@nestjs/common';
 import { InitPairingDto } from './dto/init-pairing.dto';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { SubmitPopLogsDto } from './dto/pop-log.dto';
 import { PlayerService } from './player.service';
+
+const playerValidationPipe = new ValidationPipe({
+  whitelist: true,
+  transform: true,
+  forbidNonWhitelisted: false,
+});
 
 /**
  * Public-facing controller for Android player devices.
@@ -10,6 +16,7 @@ import { PlayerService } from './player.service';
  * authenticates via its device token after pairing.
  */
 @Controller('player')
+@UsePipes(playerValidationPipe)
 export class PlayerController {
   constructor(private readonly playerService: PlayerService) {}
 

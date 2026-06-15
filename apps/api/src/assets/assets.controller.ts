@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentActor } from '../common/decorators/current-actor.decorator';
 import type { RequestActor } from '../common/interfaces/request-with-actor.interface';
@@ -28,6 +41,25 @@ export class AssetsController {
     @Body() dto: RequestUploadDto,
   ) {
     return this.assetsService.requestUpload(actor, organizationId, dto);
+  }
+
+  @Put(':assetId/upload')
+  async receiveUpload(
+    @CurrentActor() actor: RequestActor,
+    @Param('organizationId') organizationId: string,
+    @Param('assetId') assetId: string,
+    @Req() req: Request,
+  ) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return this.assetsService.receiveUpload(
+      actor,
+      organizationId,
+      assetId,
+      Buffer.concat(chunks),
+    );
   }
 
   @Patch(':assetId/confirm')

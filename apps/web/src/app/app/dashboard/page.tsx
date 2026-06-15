@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { apiRequest } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 
 const AnimatedGlobe = dynamic(() => import("@/components/AnimatedGlobe"), { ssr: false });
@@ -75,7 +75,7 @@ export default function ClientDashboardPage() {
         void (async () => {
             setIsLoading(true);
             try {
-                const response = await apiRequest<{
+                const response = await apiFetch<{
                     stats: {
                         totalDevices: number;
                         onlineDevices: number;
@@ -89,7 +89,7 @@ export default function ClientDashboardPage() {
                 }>("/api/client-data/dashboard", {
                     headers: { "x-organization-id": activeOrganizationId },
                 });
-                setDashboardData(response);
+                if (response) setDashboardData(response);
             } finally {
                 setIsLoading(false);
             }
